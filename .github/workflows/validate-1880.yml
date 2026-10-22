@@ -1,0 +1,40 @@
+name: Issue 1880 validation
+on:
+  push:
+    branches: [validation/1880-settlement-d91e]
+permissions:
+  contents: read
+jobs:
+  settlement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: 1.88.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt
+      - name: Format
+        run: cargo fmt -p smile4money-tournament-bracket --check
+      - name: Native regression suite
+        run: cargo test -p smile4money-tournament-bracket -- --nocapture
+      - name: Release WASM
+        run: cargo build -p smile4money-tournament-bracket --target wasm32-unknown-unknown --release
+      - name: Exercise maximum field against compiled WASM
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('contracts/tournament-bracket/src/tests.rs')
+          s=p.read_text()
+          old='let contract = env.register(TournamentBracket, ());'
+          new='let wasm = std::fs::read("../../target/wasm32-unknown-unknown/release/smile4money_tournament_bracket.wasm").unwrap(); let contract = env.register(wasm.as_slice(), ());'
+          assert old in s
+          p.write_text(s.replace(old,new,1))
+          PY
+          cargo test -p smile4money-tournament-bracket maximum_field -- --nocapture
